@@ -1,7 +1,6 @@
 import "dotenv/config";
 import express, { Request, Response } from "express";
 import cors from "cors";
-import fetch from "node-fetch";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { query, testConnection } from "./db";
 import adminRoutes from "./adminRoutes";
