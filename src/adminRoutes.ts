@@ -247,4 +247,49 @@ router.post("/clientes/:id/programacoes", async (req: Request, res: Response) =>
   }
 });
 
+router.put("/clientes/:clienteId/programacoes/:programacaoId", async (req: Request, res: Response) => {
+  const { clienteId, programacaoId } = req.params;
+  const { periodo, descricao } = req.body as { periodo?: string | null; descricao?: string };
+
+  if (!descricao) {
+    return res.status(400).json({ error: "Descrição da programação é obrigatória" });
+  }
+
+  try {
+    const result = await query(
+      "UPDATE programacoes SET periodo = $1, descricao = $2 WHERE id = $3 AND cliente_id = $4 RETURNING id, periodo, descricao, criado_em",
+      [periodo || null, descricao, programacaoId, clienteId]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Programação não encontrada" });
+    }
+
+    return res.json({ programacao: result.rows[0] });
+  } catch (error) {
+    console.error("Erro ao atualizar programação:", error);
+    return res.status(500).json({ error: "Erro ao atualizar programação" });
+  }
+});
+
+router.delete("/clientes/:clienteId/programacoes/:programacaoId", async (req: Request, res: Response) => {
+  const { clienteId, programacaoId } = req.params;
+
+  try {
+    const result = await query("DELETE FROM programacoes WHERE id = $1 AND cliente_id = $2 RETURNING id", [
+      programacaoId,
+      clienteId,
+    ]);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Programação não encontrada" });
+    }
+
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error("Erro ao excluir programação:", error);
+    return res.status(500).json({ error: "Erro ao excluir programação" });
+  }
+});
+
 export default router;
