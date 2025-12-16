@@ -10,8 +10,73 @@ const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
 const MERCADOPAGO_WEBHOOK_URL = process.env.MERCADOPAGO_WEBHOOK_URL;
 
-app.use(cors());
-app.use(express.json());
+if (process.env.NODE_ENV === "production" && JWT_SECRET === "dev-secret-change-me") {
+  console.error("JWT_SECRET padrão em produção. Configure JWT_SECRET com um valor forte.");
+  process.exit(1);
+}
+
+app.disable("x-powered-by");
+
+const corsOrigins = (process.env.CORS_ORIGINS || "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Permite requests sem Origin (ex: curl, health checks, alguns webhooks)
+      if (!origin) return callback(null, true);
+      if (corsOrigins.length === 0) return callback(null, true);
+      if (corsOrigins.includes(origin)) return callback(null, true);
+      return callback(new Error("Not allowed by CORS"));
+    },
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: false,
+  })
+);
+
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader(
+    "Permissions-Policy",
+    "geolocation=(), microphone=(), camera=(), payment=(), usb=(), interest-cohort=()"
+  );
+  // CSP leve para API (não precisa liberar scripts/styles)
+  res.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+  next();
+});
+
+app.use(express.json({ limit: "100kb" }));
+
+type RateEntry = { count: number; resetAt: number };
+const rateStore = new Map<string, RateEntry>();
+
+const rateLimit = (opts: { windowMs: number; max: number }) => {
+  return (req: Request, res: Response, next: () => void) => {
+    const now = Date.now();
+    const ip = req.ip || req.socket.remoteAddress || "unknown";
+    const key = `${ip}:${req.path}`;
+    const entry = rateStore.get(key);
+
+    if (!entry || entry.resetAt <= now) {
+      rateStore.set(key, { count: 1, resetAt: now + opts.windowMs });
+      return next();
+    }
+
+    entry.count += 1;
+    if (entry.count > opts.max) {
+      return res.status(429).json({ error: "Muitas requisições. Tente novamente mais tarde." });
+    }
+
+    return next();
+  };
+};
+
+app.use(rateLimit({ windowMs: 60_000, max: 300 }));
 
 app.get("/", (req: Request, res: Response) => {
   res.json({ status: "ok", service: "social-agro-backend", docs: "/health, /admin/*, /payments/*" });
@@ -323,6 +388,43 @@ app.get("/client/pagamentos/ultimo", authClientMiddleware, async (req: Request, 
   } catch (error) {
     console.error("Erro ao buscar último pagamento do cliente:", error);
     return res.status(500).json({ error: "Erro ao buscar pagamento" });
+  }
+});
+
+// Troca de senha do cliente logado
+app.post("/client/change-password", authClientMiddleware, async (req: Request, res: Response) => {
+  // @ts-expect-error payload anexado no middleware
+  const cliente = req.cliente as { sub: number };
+  const { senhaAtual, novaSenha } = req.body as { senhaAtual?: string; novaSenha?: string };
+
+  if (!senhaAtual || !novaSenha) {
+    return res.status(400).json({ error: "Senha atual e nova senha são obrigatórias" });
+  }
+
+  try {
+    const result = await query("SELECT senha_hash FROM clientes WHERE id = $1", [cliente.sub]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Cliente não encontrado" });
+    }
+
+    const senhaHash = result.rows[0]?.senha_hash as string | undefined;
+    if (!senhaHash) {
+      return res.status(500).json({ error: "Senha não configurada" });
+    }
+
+    const bcrypt = await import("bcryptjs");
+    const senhaOk = await bcrypt.default.compare(senhaAtual, senhaHash);
+    if (!senhaOk) {
+      return res.status(401).json({ error: "Senha atual inválida" });
+    }
+
+    const novoHash = await bcrypt.default.hash(novaSenha, 10);
+    await query("UPDATE clientes SET senha_hash = $1 WHERE id = $2", [novoHash, cliente.sub]);
+
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error("Erro ao trocar senha do cliente:", error);
+    return res.status(500).json({ error: "Erro ao trocar senha" });
   }
 });
 
