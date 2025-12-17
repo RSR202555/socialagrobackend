@@ -87,12 +87,12 @@ router.put("/clientes/:id", async (req: Request, res: Response) => {
     if (senha && senha.trim().length > 0) {
       const senhaHash = await bcrypt.hash(senha, 10);
       result = await query(
-        "UPDATE clientes SET nome = $1, email = $2, senha_hash = $3, plano = $4, data_pagamento = $5, valor_personalizado_centavos = $6 WHERE id = $7 RETURNING id, nome, email, plano, data_pagamento, valor_personalizado_centavos, criado_em",
+        "UPDATE clientes SET nome = $1, email = $2, senha_hash = $3, plano = $4, data_pagamento = $5::date, valor_personalizado_centavos = $6 WHERE id = $7 RETURNING id, nome, email, plano, to_char(data_pagamento, 'YYYY-MM-DD') as data_pagamento, valor_personalizado_centavos, criado_em",
         [nome, email, senhaHash, plano || null, data_pagamento || null, valorCentavos, id]
       );
     } else {
       result = await query(
-        "UPDATE clientes SET nome = $1, email = $2, plano = $3, data_pagamento = $4, valor_personalizado_centavos = $5 WHERE id = $6 RETURNING id, nome, email, plano, data_pagamento, valor_personalizado_centavos, criado_em",
+        "UPDATE clientes SET nome = $1, email = $2, plano = $3, data_pagamento = $4::date, valor_personalizado_centavos = $5 WHERE id = $6 RETURNING id, nome, email, plano, to_char(data_pagamento, 'YYYY-MM-DD') as data_pagamento, valor_personalizado_centavos, criado_em",
         [nome, email, plano || null, data_pagamento || null, valorCentavos, id]
       );
     }
@@ -165,7 +165,7 @@ router.post("/login", async (req: Request, res: Response) => {
 router.get("/clientes", async (req: Request, res: Response) => {
   try {
     const result = await query(
-      "SELECT id, nome, email, plano, data_pagamento, valor_personalizado_centavos, criado_em FROM clientes ORDER BY nome ASC"
+      "SELECT id, nome, email, plano, to_char(data_pagamento, 'YYYY-MM-DD') as data_pagamento, valor_personalizado_centavos, criado_em FROM clientes ORDER BY nome ASC"
     );
     return res.json({ clientes: result.rows });
   } catch (error) {
@@ -198,7 +198,7 @@ router.post("/clientes", async (req: Request, res: Response) => {
     const valorCentavos = toCentavos(valor_personalizado ?? null);
 
     const result = await query(
-      "INSERT INTO clientes (nome, email, senha_hash, plano, data_pagamento, valor_personalizado_centavos) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, nome, email, plano, data_pagamento, valor_personalizado_centavos, criado_em",
+      "INSERT INTO clientes (nome, email, senha_hash, plano, data_pagamento, valor_personalizado_centavos) VALUES ($1, $2, $3, $4, $5::date, $6) RETURNING id, nome, email, plano, to_char(data_pagamento, 'YYYY-MM-DD') as data_pagamento, valor_personalizado_centavos, criado_em",
       [nome, email, senhaHash, plano || null, data_pagamento || null, valorCentavos]
     );
 

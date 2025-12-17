@@ -259,7 +259,7 @@ app.post("/client/login", async (req: Request, res: Response) => {
 
   try {
     const result = await query(
-      "SELECT id, nome, email, senha_hash, plano, data_pagamento, valor_personalizado_centavos FROM clientes WHERE email = $1",
+      "SELECT id, nome, email, senha_hash, plano, to_char(data_pagamento, 'YYYY-MM-DD') as data_pagamento, valor_personalizado_centavos FROM clientes WHERE email = $1",
       [email]
     );
 
